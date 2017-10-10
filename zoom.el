@@ -97,6 +97,19 @@ are not called."
   :type '(repeat function)
   :group 'zoom)
 
+(defcustom zoom-disable-mouse-drag-other-windows nil
+  "Require window selection on order to enable mouse drag.
+
+Non-nil means that common mouse drag functions (about region and
+secondary selection) are disabled when performed on other
+windows, rather a proper left click (up and down) is needed in
+order to select a window.  This is useful to avoid accidental
+activations due to window zooming.
+
+Conversely, nil represents the default behavior."
+  :type 'boolean
+  :group 'zoom)
+
 ;;;###autoload
 (define-minor-mode zoom-mode
   "Perform `zoom' automatically as the selected window changes."
@@ -118,8 +131,16 @@ are not called."
 
 (defun zoom--on ()
   "Enable hooks and advices and update the layout."
+  ;; add zoom handlers
   (add-hook 'window-size-change-functions 'zoom--hook-handler)
   (advice-add 'select-window :after 'zoom--hook-handler)
+  ;; allow to fix mouse regions behavior
+  (advice-add 'mouse-drag-region :before-while 'zoom--mouse-would-select-p)
+  (advice-add 'mouse-set-region :before-while 'zoom--mouse-would-select-p)
+  (advice-add 'mouse-start-secondary :before-while 'zoom--mouse-would-select-p)
+  (advice-add 'mouse-drag-secondary :before-while 'zoom--mouse-would-select-p)
+  (advice-add 'mouse-set-secondary :before-while 'zoom--mouse-would-select-p)
+  (advice-add 'mouse-secondary-save-then-kill :before-while 'zoom--mouse-would-select-p)
   ;; update the layout once loaded
   (dolist (frame (frame-list))
     (with-selected-frame frame
@@ -127,8 +148,16 @@ are not called."
 
 (defun zoom--off ()
   "Disable hooks and advices and evenly balance the windows."
+  ;; remove zoom handlers
   (remove-hook 'window-size-change-functions 'zoom--hook-handler)
   (advice-remove 'select-window 'zoom--hook-handler)
+  ;; reset mouse regions behavior
+  (advice-remove 'mouse-drag-region 'zoom--mouse-would-select-p)
+  (advice-remove 'mouse-set-region 'zoom--mouse-would-select-p)
+  (advice-remove 'mouse-start-secondary 'zoom--mouse-would-select-p)
+  (advice-remove 'mouse-drag-secondary 'zoom--mouse-would-select-p)
+  (advice-remove 'mouse-set-secondary 'zoom--mouse-would-select-p)
+  (advice-remove 'mouse-secondary-save-then-kill 'zoom--mouse-would-select-p)
   ;; leave with a clean layout
   (dolist (frame (frame-list))
     (balance-windows frame)))
@@ -234,6 +263,14 @@ resized horizontally or vertically."
   (when (and truncate-lines
              (> (current-column) (- (window-body-width) hscroll-margin)))
     (scroll-left (- (current-column) (/ (window-body-width) 2)))))
+
+(defun zoom--mouse-would-select-p (&rest arguments)
+  "Before-advice handler used to inhibit mouse regions during window selection.
+
+ARGUMENTS is ignored."
+  (or (not zoom-disable-mouse-drag-other-windows)
+      ;; check if the mouse is over the selected window
+      (coordinates-in-window-p (cdr (mouse-position)) (selected-window))))
 
 (provide 'zoom)
 
